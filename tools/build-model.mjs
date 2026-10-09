@@ -1,0 +1,21 @@
+// Rebuild the unified Naiwa skin using smooth implicit unions and marching tetrahedra.
+// Run: node tools/build-model.mjs
+import fs from 'node:fs';
+import * as T from '../assets/three.module.min.js';
+const profile=[[.1,.25],[.27,.54],[.58,.81],[.95,.95],[1.3,.98],[1.66,.87],[1.95,.68],[2.22,.53],[2.5,.47],[2.75,.45],[2.92,.36],[3.04,.23],[3.1,.08],[3.11,0]];
+function radius(y){let j=0;while(j<profile.length-2&&y>profile[j+1][0])j++;const [ya,a]=profile[j],[yb,b]=profile[j+1],prev=profile[Math.max(0,j-1)],next=profile[Math.min(profile.length-1,j+2)],t=T.MathUtils.clamp((y-ya)/(yb-ya),0,1),h=yb-ya,ma=(b-prev[1])/(yb-prev[0]),mb=(next[1]-a)/(next[0]-ya);return Math.max(0,(2*t**3-3*t*t+1)*a+(t**3-2*t*t+t)*h*ma+(-2*t**3+3*t*t)*b+(t**3-t*t)*h*mb);}
+const paths=[-1,1].map(s=>new T.CatmullRomCurve3([[s*.7,1.8,.02],[s*.9,1.55,.1],[s*.94,1.23,.29],[s*.75,1.01,.54],[s*.51,1.08,.76]].map(p=>new T.Vector3(...p))).getPoints(24));
+function arm(x,y,z,points){let min=1e9;for(let i=0;i<points.length-1;i++){const a=points[i],b=points[i+1],vx=b.x-a.x,vy=b.y-a.y,vz=b.z-a.z,t=T.MathUtils.clamp(((x-a.x)*vx+(y-a.y)*vy+(z-a.z)*vz)/(vx*vx+vy*vy+vz*vz),0,1),q=(i+t)/(points.length-1),r=.24+.095*Math.sin(q*Math.PI)-.12*q*q,d=Math.hypot(x-a.x-t*vx,y-a.y-t*vy,z-a.z-t*vz)-r;if(d<min)min=d;}return min;}
+function parts(x,y,z){return [Math.max(Math.hypot(x,z/.72)-radius(y),.1-y,y-3.11),arm(x,y,z,paths[0]),arm(x,y,z,paths[1])];}
+function smooth(a,b,k){const h=Math.max(k-Math.abs(a-b),0)/k;return Math.min(a,b)-h*h*k*.25;}
+function field(x,y,z){const [a,b,c]=parts(x,y,z);return smooth(smooth(a,b,.22),c,.22);}
+const step=.055,min=[-1.5,.02,-.83],dims=[56,59,38],count=dims[0]*dims[1]*dims[2],values=new Float32Array(count),coords=new Float32Array(count*3);
+const id=(i,j,k)=>(k*dims[1]+j)*dims[0]+i;
+for(let k=0;k<dims[2];k++)for(let j=0;j<dims[1];j++)for(let i=0;i<dims[0];i++){const n=id(i,j,k),x=min[0]+i*step,y=min[1]+j*step,z=min[2]+k*step;coords.set([x,y,z],n*3);values[n]=field(x,y,z);}
+const vertices=[],triangles=[],edgeCache=new Map();
+function vertex(a,b){const key=a<b?a+':'+b:b+':'+a;if(edgeCache.has(key))return edgeCache.get(key);const t=values[a]/(values[a]-values[b]),p=[0,1,2].map(k=>coords[a*3+k]+t*(coords[b*3+k]-coords[a*3+k])),[x,y,z]=p,eps=.002,n=[field(x+eps,y,z)-field(x-eps,y,z),field(x,y+eps,z)-field(x,y-eps,z),field(x,y,z+eps)-field(x,y,z-eps)],len=Math.hypot(...n)||1,[body,l,r]=parts(x,y,z);
+let wl=1-T.MathUtils.clamp(.5+.5*(l-body)/.22,0,1),wr=1-T.MathUtils.clamp(.5+.5*(r-body)/.22,0,1);const sum=wl+wr;if(sum>1){wl/=sum;wr/=sum;}const result=vertices.length/8;vertices.push(x,y,z,...n.map(v=>v/len),wl,wr);edgeCache.set(key,result);return result;}
+function triangle(a,b,c){const A=vertices.slice(a*8,a*8+3),B=vertices.slice(b*8,b*8+3),C=vertices.slice(c*8,c*8+3),u=B.map((v,i)=>v-A[i]),v=C.map((w,i)=>w-A[i]),normal=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],dot=normal.reduce((s,v,i)=>s+v*vertices[a*8+3+i],0);triangles.push(a,...(dot<0?[c,b]:[b,c]));}
+const tets=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
+for(let k=0;k<dims[2]-1;k++)for(let j=0;j<dims[1]-1;j++)for(let i=0;i<dims[0]-1;i++){const c=[id(i,j,k),id(i+1,j,k),id(i+1,j+1,k),id(i,j+1,k),id(i,j,k+1),id(i+1,j,k+1),id(i+1,j+1,k+1),id(i,j+1,k+1)];if(c.every(n=>values[n]>=0)||c.every(n=>values[n]<0))continue;for(const tet of tets){const inside=tet.map(n=>c[n]).filter(n=>values[n]<0),outside=tet.map(n=>c[n]).filter(n=>values[n]>=0);if(inside.length===1){const p=outside.map(n=>vertex(inside[0],n));triangle(...p);}else if(inside.length===3){const p=inside.map(n=>vertex(outside[0],n));triangle(...p);}else if(inside.length===2){const [a,b]=inside,[c,d]=outside,ac=vertex(a,c),ad=vertex(a,d),bc=vertex(b,c),bd=vertex(b,d);triangle(ac,ad,bc);triangle(ad,bd,bc);}}}
+const header=new Uint32Array([0x4e414957,1,vertices.length/8,triangles.length]),v=new Float32Array(vertices),ix=new Uint32Array(triangles),out=Buffer.concat([Buffer.from(header.buffer),Buffer.from(v.buffer),Buffer.from(ix.buffer)]);fs.writeFileSync(new URL('../assets/naiwa-sculpt.bin',import.meta.url),out);console.log(JSON.stringify({vertices:vertices.length/8,triangles:triangles.length/3,bytes:out.length,skin:'continuous torso and arms with three bone influences'}));
