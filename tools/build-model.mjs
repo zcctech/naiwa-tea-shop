@@ -6,10 +6,11 @@ const profile=[[.1,.25],[.27,.54],[.58,.81],[.95,.95],[1.3,.98],[1.66,.87],[1.95
 function radius(y){let j=0;while(j<profile.length-2&&y>profile[j+1][0])j++;const [ya,a]=profile[j],[yb,b]=profile[j+1],prev=profile[Math.max(0,j-1)],next=profile[Math.min(profile.length-1,j+2)],t=T.MathUtils.clamp((y-ya)/(yb-ya),0,1),h=yb-ya,ma=(b-prev[1])/(yb-prev[0]),mb=(next[1]-a)/(next[0]-ya);return Math.max(0,(2*t**3-3*t*t+1)*a+(t**3-2*t*t+t)*h*ma+(-2*t**3+3*t*t)*b+(t**3-t*t)*h*mb);}
 const paths=[-1,1].map(s=>new T.CatmullRomCurve3([[s*.7,1.8,.02],[s*.9,1.55,.1],[s*.94,1.23,.29],[s*.75,1.01,.54],[s*.51,1.08,.76]].map(p=>new T.Vector3(...p))).getPoints(24));
 function arm(x,y,z,points){let min=1e9;for(let i=0;i<points.length-1;i++){const a=points[i],b=points[i+1],vx=b.x-a.x,vy=b.y-a.y,vz=b.z-a.z,t=T.MathUtils.clamp(((x-a.x)*vx+(y-a.y)*vy+(z-a.z)*vz)/(vx*vx+vy*vy+vz*vz),0,1),q=(i+t)/(points.length-1),r=.24+.095*Math.sin(q*Math.PI)-.12*q*q,d=Math.hypot(x-a.x-t*vx,y-a.y-t*vy,z-a.z-t*vz)-r;if(d<min)min=d;}return min;}
-function parts(x,y,z){return [Math.max(Math.hypot(x,z/.72)-radius(y),.1-y,y-3.11),arm(x,y,z,paths[0]),arm(x,y,z,paths[1])];}
+function ellipsoidDistance(x,y,z,cx,cy,cz,rx,ry,rz){const a=(x-cx)/rx,b=(y-cy)/ry,c=(z-cz)/rz,k0=Math.hypot(a,b,c),k1=Math.hypot(a/rx,b/ry,c/rz);return k1>1e-6?k0*(k0-1)/k1:-Math.min(rx,ry,rz);}
+function parts(x,y,z){let body=Math.max(Math.hypot(x,z/.72)-radius(y),.1-y,y-3.11);for(const sign of [-1,1])body=smooth(body,ellipsoidDistance(x,y,z,sign*.29,2.5,.19,.12,.11,.095),.05);body=smooth(body,ellipsoidDistance(x,y,z,0,2.44,.342,.13,.016,.019),.012);return [body,arm(x,y,z,paths[0]),arm(x,y,z,paths[1])];}
 function smooth(a,b,k){const h=Math.max(k-Math.abs(a-b),0)/k;return Math.min(a,b)-h*h*k*.25;}
 function field(x,y,z){const [a,b,c]=parts(x,y,z);return smooth(smooth(a,b,.22),c,.22);}
-const step=.055,min=[-1.5,.02,-.83],dims=[56,59,38],count=dims[0]*dims[1]*dims[2],values=new Float32Array(count),coords=new Float32Array(count*3);
+const step=.045,min=[-1.5,.02,-.83],dims=[68,71,45],count=dims[0]*dims[1]*dims[2],values=new Float32Array(count),coords=new Float32Array(count*3);
 const id=(i,j,k)=>(k*dims[1]+j)*dims[0]+i;
 for(let k=0;k<dims[2];k++)for(let j=0;j<dims[1];j++)for(let i=0;i<dims[0];i++){const n=id(i,j,k),x=min[0]+i*step,y=min[1]+j*step,z=min[2]+k*step;coords.set([x,y,z],n*3);values[n]=field(x,y,z);}
 const vertices=[],triangles=[],edgeCache=new Map();
